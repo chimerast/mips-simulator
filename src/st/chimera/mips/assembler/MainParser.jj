@@ -1,0 +1,286 @@
+options {
+    STATIC = false;
+}
+
+PARSER_BEGIN(MainParser)
+package st.chimera.mips.assembler;
+
+import java.io.*;
+import java.util.*;
+
+public class MainParser {
+	private Assembler assembler;	
+    public MainParser(Assembler assembler, Reader in) throws ParseException {
+        this(in);
+        this.assembler = assembler;
+        Input();
+    }
+}
+PARSER_END(MainParser)
+
+TOKEN :
+{
+    <SPACE: " "|"\t"|"\r"|"\f"> |
+    <EOL: ("\n"|"\r\n")> |
+
+    <REGISTER: "$" (<RAW_REG> | <ZERO_REG> | <AT_REG> | <VAL_REG> | <ARG_REG> 
+        | <TMP_REG> | <SAV_REG> | <KER_REG> | <GP_REG> | <SP_REG> | <FP_REG> | <RA_REG>) > |
+
+    <#RAW_REG: (["1"-"2"])?["0"-"9"]|"3"("0"|"1")> |
+    <#ZERO_REG: "zero"> |
+    <#AT_REG: "at"> |
+    <#VAL_REG: "v"(["0"-"1"])> |
+    <#ARG_REG: "a"(["0"-"3"])> |
+    <#TMP_REG: "t"(["0"-"9"])> |
+    <#SAV_REG: "s"(["0"-"7"])> |
+    <#KER_REG: "k"(["0"-"1"])> |
+    <#GP_REG: "gp"> |
+    <#SP_REG: "sp"> |
+    <#FP_REG: "fp"> |
+    <#RA_REG: "ra"> |
+    
+    <ROPCODE_RD_RT_SHAMT: "sll"|"srl"|"sra"> |
+    <ROPCODE_RD_RT_RS: "sllv"|"srlv"|"srav"> |
+	<ROPCODE_NONE: "syscall"> |
+    <ROPCODE_RD: "mfhi"|"mflo"> |
+    <ROPCODE_RS: "jr"|"mthi"|"mtlo"> |
+    <ROPCODE_RS_RT: "mult"|"multu"|"div"|"divu"> |
+    <ROPCODE_RD_RS_RT: "add"|"addu"|"sub"|"subu"|"and"|"or"|"xor"|"nor"|"slt"|"sltu"> |
+
+    <IOPCODE_RS_RT_LABEL: "beq"|"bne"|"bltz"|"bgez"|"bgezal"|"bltzal"> |
+    <IOPCODE_RS_LABEL: "blez"|"bgtz"> |
+    <IOPCODE_RT_RS_IMM: "addi"|"addiu"|"slti"|"sltiu"|"andi"|"ori"|"xori"> |
+    <IOPCODE_RT_IMM: "lui"> |
+    <IOPCODE_RT_ADDR: "lb"|"rh"|"lwl"|"lw"|"lbu"|"lhu"|"lwr"|"sb"|"sh"|"swl"|"sw"|"swr"> |
+
+	<JOPCODE: "j"|"jal"> |
+
+	<IDENTIFIER_COLON: <IDENTIFIER> ":"> |
+	<DECIMAL_COLON: <DECIMAL> ":"> |
+
+	<IDENTIFIER: (["a"-"z"]|["A"-"Z"])(["a"-"z"]|["A"-"Z"]|["0"-"9"]|"_")+> |
+	<DECIMAL: "0" | (("-")? ["1"-"9"] (["0"-"9"])*)> |
+	<HEXADECIMAL: "0x" (["0"-"9"]|["a"-"f"]|["A"-"F"])+> 
+}
+
+void Input() :
+{}
+{
+    (LOOKAHEAD(2) Line())* (<SPACE>)* <EOF>
+}
+
+void Line() :
+{}
+{
+	{ System.err.println("[DEBUG] enter Line()..."); }
+    (<SPACE>)* (LineLabel() (<SPACE>)*)? (Instruction() (<SPACE>)*)? <EOL>
+    { System.err.println("[DEBUG] end of Line()"); }
+}
+
+void LineLabel() :
+{ Token label; }
+{
+	label = <IDENTIFIER_COLON>
+	{ assembler.putLabel(label.image.substring(0, label.image.length()-1)); }
+}
+
+void Instruction() : 
+{}
+{
+    RInstruction_DTSH() | RInstruction_DTS() | RInstruction_S() | RInstruction_D() |
+    RInstruction_ST() | RInstruction_DST() | RInstruction_N() | IInstruction_STL() |
+    IInstruction_SL() | IInstruction_TSI() | IInstruction_TI() | IInstruction_TA() |
+    JInstruction()
+}
+
+void RInstruction_DTSH() :
+{ Token op; int rd, rt, shamt; }
+{
+    op = <ROPCODE_RD_RT_SHAMT> (<SPACE>)+
+    rd = Register() (<SPACE>)* "," (<SPACE>)*
+    rt = Register() (<SPACE>)* "," (<SPACE>)*
+    shamt = Immediate()
+    {
+    	assembler.putRInstruction(op.image, 0, rt, rd, shamt);
+		assembler.putInstructionString(op.image + " " + rd + ", " + rt);
+    }
+}
+
+void RInstruction_DTS() :
+{ Token op; int rd, rt, rs; }
+{
+    op = <ROPCODE_RD_RT_RS> (<SPACE>)+
+    rd = Register() (<SPACE>)* "," (<SPACE>)*
+    rt = Register() (<SPACE>)* "," (<SPACE>)*
+    rs = Register()
+    {
+    	assembler.putRInstruction(op.image, rs, rt, rd, 0);
+		assembler.putInstructionString(op.image + " " + rd + ", " + rt + ", " + rs);
+    }
+}
+
+void RInstruction_S() :
+{ Token op; int rs; }
+{
+	op = <ROPCODE_RS> (<SPACE>)+
+	rs = Register()
+	{
+		assembler.putRInstruction(op.image, rs, 0, 0, 0); 
+		assembler.putInstructionString(op.image + " " + rs);
+	}
+}
+
+void RInstruction_D() :
+{ Token op; int rd; }
+{
+    op = <ROPCODE_RD> (<SPACE>)+
+    rd = Register()
+    {
+    	assembler.putRInstruction(op.image, 0, 0, rd, 0); 
+		assembler.putInstructionString(op.image + " " + rd);
+    }
+}
+
+void RInstruction_ST() :
+{ Token op; int rs, rt; }
+{
+    op = <ROPCODE_RS_RT> (<SPACE>)+
+    rs = Register() (<SPACE>)* "," (<SPACE>)*
+    rt = Register()
+    {
+    	assembler.putRInstruction(op.image, rs, rt, 0, 0); 
+		assembler.putInstructionString(op.image + " " + rs + ", " + rt);
+    }
+}
+
+void RInstruction_DST() :
+{ Token op; int rd, rs, rt; }
+{
+    op = <ROPCODE_RD_RS_RT> (<SPACE>)+
+    rd = Register() (<SPACE>)* "," (<SPACE>)*
+    rs = Register() (<SPACE>)* "," (<SPACE>)*
+    rt = Register()
+    { 
+    	assembler.putRInstruction(op.image, rs, rt, rd, 0); 
+		assembler.putInstructionString(op.image + " " + rd + ", " + rs + ", " + rt);
+    }
+}
+
+void RInstruction_N() :
+{ Token op; }
+{
+	op = <ROPCODE_NONE>
+	{
+		assembler.putRInstruction(op.image, 0, 0, 0, 0); 
+		assembler.putInstructionString(op.image);
+	}
+}
+
+void IInstruction_STL() :
+{ Token op; int rs, rt, label; }
+{
+	op = <IOPCODE_RS_RT_LABEL> (<SPACE>)+
+	rs = Register() (<SPACE>)* "," (<SPACE>)*
+	rt = Register() (<SPACE>)* "," (<SPACE>)*
+	label = Label()
+	{
+		assembler.putIInstruction(op.image, rs, rt, label); 
+		assembler.putInstructionString(op.image + " " + rs + ", " + rt);
+	}
+}
+
+void IInstruction_SL() :
+{ Token op; int rs, label; }
+{
+	op = <IOPCODE_RS_LABEL> (<SPACE>)+
+	rs = Register() (<SPACE>)* "," (<SPACE>)*
+	label = Label()
+	{
+		assembler.putIInstruction(op.image, rs, 0, label); 
+		assembler.putInstructionString(op.image + " " + rs + ", " + label);
+	}
+}
+
+void IInstruction_TSI() : 
+{ Token op; int rt, rs, imm; }
+{
+	op = <IOPCODE_RT_RS_IMM> (<SPACE>)+
+	rt = Register() (<SPACE>)* "," (<SPACE>)*
+	rs = Register() (<SPACE>)* "," (<SPACE>)*
+	imm = Immediate()
+	{
+		assembler.putIInstruction(op.image, rs, rt, imm); 
+		assembler.putInstructionString(op.image + " " + rt + ", " + rs + ", " + imm);
+	}
+}
+
+void IInstruction_TI() : 
+{ Token op; int rt, imm; }
+{
+	op = <IOPCODE_RT_IMM> (<SPACE>)+
+	rt = Register() (<SPACE>)* "," (<SPACE>)*
+	imm = Immediate()
+	{
+		assembler.putIInstruction(op.image, 0, rt, imm); 
+		assembler.putInstructionString(op.image + " " + rt + ", " + imm);
+	}
+}
+
+void IInstruction_TA() :
+{ Token op; int rt, address; }
+{
+	op = <IOPCODE_RT_ADDR> (<SPACE>)+
+	rt = Register() (<SPACE>)* "," (<SPACE>)*
+	address = Address()
+	{ 
+		assembler.putIInstruction(op.image, address >>> 21 , rt, address & 0xfffff); 
+		assembler.putInstructionString(op.image + " " + rt + ", " + (address & 0xfffff));
+	}
+}
+
+void JInstruction() :
+{ Token op; int target; }
+{
+	op = <JOPCODE> (<SPACE>)+
+	target = Target()
+	{ 
+		assembler.putJInstruction(op.image, target); 
+		assembler.putInstructionString(op.image + " " + target);
+	}
+}
+
+int Immediate() :
+{ Token t; }
+{
+    t = <DECIMAL> { return Integer.parseInt(t.image); } | 
+    t = <HEXADECIMAL> { return Integer.parseInt(t.image.substring(2), 16); } 
+}
+
+int Register() :
+{ Token t; }
+{
+	t = <REGISTER>
+    { return Assembler.getRegisterNumber(t.image.substring(1)); }
+}
+
+int Label() : 
+{ Token label; }
+{
+	label = <IDENTIFIER>
+	{ return assembler.getLabelRelativeAddress(label.image) >> 2; }
+}
+
+int Address() :
+{ int label, imm, reg = 0; }
+{
+	label = Label() { return label; } | 
+	(imm = Immediate() ("(" reg = Register() ")")?)
+	{ return Assembler.createInstruction(0, reg, 0, imm); } 
+}
+
+int Target() : 
+{ Token target; }
+{
+	target = <IDENTIFIER>
+	{ return assembler.getLabelAbsoluteAddress(target.image) >> 2; }
+}
