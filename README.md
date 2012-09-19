@@ -1,6 +1,8 @@
 ## これは何
 MIPSの回路図の動作をシミュレートしたものです。CPUの構造の勉強用です。簡易アセンブラもついてます。
 
+遙か昔に単位取得のためにJ2SE 1.4用に書かれたものです。
+
 Computer Organization and Design: The Hardware/Software Interface
 http://www.amazon.co.jp/dp/0123747503
 
